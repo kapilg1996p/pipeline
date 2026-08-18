@@ -1,0 +1,115 @@
+name: 'Terraform CI/CD Pipeline'
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'environment/pre-prod/**'
+      - 'modules/**'
+      - '.github/workflows/**'
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - 'environment/pre-prod/**'
+      - 'modules/**'
+  workflow_dispatch: # Allows manual trigger from GitHub UI
+
+jobs:
+  # ==========================================
+  # JOB 1: TERRAFORM PLAN & VALIDATION
+  # ==========================================
+  terraform-plan:
+    name: 'Terraform Validate & Plan'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./environment/pre-prod
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+    steps:
+      # Step 1: Checkout Repository Code
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Step 2: Setup Terraform CLI
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.0
+
+      # Step 3: Terraform Format Check
+      - name: Terraform Format Check
+        run: terraform fmt -check
+
+      # Step 4: Terraform Init
+      - name: Terraform Init
+        run: terraform init
+
+      # Step 5: Terraform Validate
+      - name: Terraform Validate
+        run: terraform validate
+
+      # Step 6: Terraform Plan
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color -out=tfplan
+
+      # Step 7: Upload Terraform Plan as an Artifact
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: ./environment/pre-prod/tfplan
+
+  # ==========================================
+  # JOB 2: TERRAFORM APPLY
+  # ==========================================
+  terraform-apply:
+    name: 'Terraform Apply'
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    defaults:
+      run:
+        working-directory: ./environment/pre-prod
+
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+    steps:
+      # Step 1: Checkout Repository Code
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Step 2: Setup Terraform CLI
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.0
+
+      # Step 3: Download Terraform Plan Artifact
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: ./environment/pre-prod
+
+      # Step 4: Terraform Init
+      - name: Terraform Init
+        run: terraform init
+
+      # Step 5: Terraform Apply Plan
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
